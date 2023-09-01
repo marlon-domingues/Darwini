@@ -19,24 +19,24 @@ int pulso_rev_enc = 60;   //pulso por revolução encoder
 #define led   2           //Led azul da placa
 //-------------VARIAVEIS DE CONTROLE--------------------
 int modo = 1;             //Modo de operação do módulo 
-int microstepDelay = 2400;//Define a velocidade de rotação do motor
+int microstepDelay = 600;//Define a velocidade de rotação do motor
 bool recebido = false; 
 //---------------------ESPNOW----------------------------
 bool estado;                                                    //estado de envio do dado  ESPNOW
 uint8_t mestreAddress[] = {0xC4, 0xDE, 0xE2, 0x19, 0x67, 0xB4}; //Endereço mestre
 esp_now_peer_info_t peerInfo;                                   //Variavel de pareamento
 
-typedef struct Rdados{    //estrutura dos dados recebidos pelos escravos
-  int x;                  //quantidade de pulsos que o módulo deve atingir 
+typedef struct Rdados{    //Estrutura dos dados recebidos pelos escravos
+  int x;                  //Quantidade de pulsos que o módulo deve atingir 
 } Rdados;
 
-typedef struct Edados{    //estrutura dos dados enviados pelos escravos
+typedef struct Edados{    //Estrutura dos dados enviados pelos escravos
   bool fim;               //Flag informando a finalização do movimento
   int id;                 //Identificação do módulo 
 };
 
 Edados conf;              //Variavel do tipo de envio dos escravos
-Rdados myData;            //variavel do tipo de recebimento dos escravos
+Rdados myData;            //Variavel do tipo de recebimento dos escravos
 //-------------------------------------------------------
 
 //########################################################
@@ -170,18 +170,22 @@ void manual(){
   }
 }
 
+//-------CONFIRMAÇÃO FINALIZAÇAO--------
+void confirmar(){
+  esp_err_t result = esp_now_send(mestreAddress, (uint8_t *) &conf, sizeof(Edados));
+  recebido = false;
+}
+
 //-------------MODO REMOTO--------------
 void remoto(){
   microstepDelay=2400
-  if ( rotValue < myData.x){
+  if (rotValue < myData.x){
     digitalWrite(DIR,HIGH);
     while (rotValue < myData.x){
       pulso();
-      Serial.println(rotValue);
     }
     if (recebido){
-      esp_err_t result1 = esp_now_send(mestreAddress, (uint8_t *) &conf, sizeof(Edados));
-      recebido = false;
+      confirmar();
     }
   }
 
@@ -192,9 +196,12 @@ void remoto(){
       Serial.println(rotValue);
     }
     if (recebido){
-      esp_err_t result2 = esp_now_send(mestreAddress, (uint8_t *) &conf, sizeof(Edados));
-      recebido = false;
+      confirmar();
     }
+  }
+
+  else if (recebido && rotValue == myData.x){
+    confirmar();
   }
 }
 
@@ -218,9 +225,7 @@ void setup() {
   attachInterrupt(ROTARY_PINB, isrAB, CHANGE);
   pinMode (rele, OUTPUT);
   digitalWrite(rele, HIGH);
-  delay(1000);                           //tempo para acionamento do 
-  
-
+  delay(1000);                           //tempo para acionamento do rele
 }
 
 
