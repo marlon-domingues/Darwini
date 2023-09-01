@@ -1,0 +1,73 @@
+import serial
+import numpy as np
+import pygame
+import time
+import math
+
+#Dados para conecção serial
+esp32 = serial.Serial('COM4', 115200)
+
+#iniciar o pygame para leitura do joystick
+pygame.init()
+clock = pygame.time.Clock()
+joysticks = []
+
+#Valores a serem ajustados pelo joystick e enviado para esp
+pos_x = [0,0]
+vetor = [True, True, True, True]
+
+#Função para enviar a informação para esp
+def enviar(x):
+    esp32.write(str(x).encode())
+
+#Funcão confirmar termino dos motores
+def verificar():
+    global vetor
+    dado = False
+    while not dado:
+        linha = esp32.readline().decode().strip()
+        if "Dados" in linha:
+            dado = True
+    if dado:
+        linha = esp32.readline().decode().strip()
+        valor = linha.split(";")
+        print("---------Resultados---------")
+        for i in range(4):
+            vetor[i] = bool(valor[i])
+            print(f"Módulo: {i}; Estado: {vetor[i]}.")
+        print()
+
+#Função que modifica o dado a ser enviado pelo joystick
+def movimento():
+    global pos_x
+    global vetor
+    print("passando")
+    for joystick in joysticks:
+        if abs(joystick.get_axis(0)) > 0.2:
+            sin = (joystick.get_axis(0)/abs(joystick.get_axis(0))) #Pega o sinal do joystick 
+            pos_x[0] += sin*10
+    if pos_x[0] != pos_x[1]:
+        pos_x[1] = pos_x[0]
+        enviar(pos_x[0])
+        print(f"Enviado: {pos_x[0]}")
+        vetor[0] = False
+        vetor[1] = False
+        #vetor = [False] * len(vetor)
+        
+    
+    #Conexão contínua com joystick
+    for event in pygame.event.get():
+        if event.type == pygame.JOYDEVICEADDED:
+          joy = pygame.joystick.Joystick(event.device_index)
+          joysticks.append(joy)
+        #quit program
+        if event.type == pygame.QUIT:
+          run = False
+
+while True:
+    print(vetor)
+    if all(vetor):
+        movimento()
+    if pos_x[0] != pos_x[1]:
+        verificar()
+        
