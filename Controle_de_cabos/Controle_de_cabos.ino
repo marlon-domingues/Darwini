@@ -43,7 +43,7 @@ Rdados myData;            //variavel do tipo de recebimento dos escravos
 //---------------------FUNÇÕES----------------------------
 //########################################################
 
-//-------------INTERRUPÇÃO DO ----------------------------
+//-------------INTERRUPÇÃO DO ENCODER---------------------
 portMUX_TYPE gpioMux = portMUX_INITIALIZER_UNLOCKED;
 
 void IRAM_ATTR isrAB() {
@@ -198,6 +198,7 @@ void remoto(){
   }
 }
 
+//----------------------------------------
 
 void setup() {
   Serial.begin(115200);
