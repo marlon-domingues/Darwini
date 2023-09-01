@@ -19,7 +19,11 @@ int pulso_rev_enc = 60;   //pulso por revolução encoder
 #define led   2           //Led azul da placa
 //-------------VARIAVEIS DE CONTROLE--------------------
 int modo = 1;             //Modo de operação do módulo 
+<<<<<<< Updated upstream:Superior_test_encoder/Superior_test_encoder.ino
 int microstepDelay = 2400;//Define a velocidade de rotação do motor
+=======
+int microstepDelay = 600; //Define a velocidade de rotação do motor
+>>>>>>> Stashed changes:Controle_de_cabos/Controle_de_cabos.ino
 bool recebido = false; 
 //---------------------ESPNOW----------------------------
 bool estado;                                                    //estado de envio do dado  ESPNOW
@@ -119,10 +123,6 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status){
 
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&myData, incomingData, sizeof(myData));
-  recebido = true;
-  digitalWrite(led,HIGH);
-  delay(1000);
-  digitalWrite(led,LOW);
 }
 
 //-------------VELOCIDADE DE ROTACAO DO MOTOR-------------------
@@ -172,6 +172,7 @@ void manual(){
 
 //-------------MODO REMOTO--------------
 void remoto(){
+<<<<<<< Updated upstream:Superior_test_encoder/Superior_test_encoder.ino
   microstepDelay=2400
   if ( rotValue < myData.x){
     digitalWrite(DIR,HIGH);
@@ -183,18 +184,26 @@ void remoto(){
       esp_err_t result1 = esp_now_send(mestreAddress, (uint8_t *) &conf, sizeof(Edados));
       recebido = false;
     }
+=======
+  if (rotValue < myData.x){
+    digitalWrite(DIR,HIGH);
+    while (rotValue < myData.x){
+      pulso();
+>>>>>>> Stashed changes:Controle_de_cabos/Controle_de_cabos.ino
   }
 
   else if (rotValue > myData.x){
     digitalWrite(DIR,LOW);
     while (rotValue > myData.x){
       pulso();
-      Serial.println(rotValue);
     }
+<<<<<<< Updated upstream:Superior_test_encoder/Superior_test_encoder.ino
     if (recebido){
       esp_err_t result2 = esp_now_send(mestreAddress, (uint8_t *) &conf, sizeof(Edados));
       recebido = false;
     }
+=======
+>>>>>>> Stashed changes:Controle_de_cabos/Controle_de_cabos.ino
   }
 }
 
