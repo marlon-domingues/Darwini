@@ -3,7 +3,6 @@
 #include <WiFi.h>
 //----------------PARAMETROS COMUNICAÇÃO------------------
 bool pronto[4] = {true, true, true, true};  //Confirmação de funcionamento dos módulos
-String  str;                                //String para finalizar a leitura da serial
 //----------------------ESPNOW----------------------------
 uint8_t moduloAddress0[] = {0x08, 0xB6, 0x1F, 0x2A, 0xF5, 0xC0};  //Endereço dos módulos
 uint8_t moduloAddress1[] = {0xD4, 0xD4, 0xDA, 0x5D, 0x50, 0x8C}; 
@@ -112,11 +111,10 @@ void printar(){
 
 int env(){
   if (pronto[0] && pronto[1]){
-    //memset(pronto, false, sizeof(pronto));
     esp_err_t result = esp_now_send(0, (uint8_t *) &mot, sizeof(Edados));
   }
 }
-
+//--------------------------------------------------
 void setup() {
   Serial.begin(115200);
   ativar_ESPNOW();  //Ativa o ESPNOW
@@ -126,7 +124,7 @@ void setup() {
 void loop() {
   if(Serial.available()){
     mot.x = Serial.parseInt();
-    str = Serial.readStringUntil('\n');
+    Serial.readStringUntil('\n');
     env();
   }
 }

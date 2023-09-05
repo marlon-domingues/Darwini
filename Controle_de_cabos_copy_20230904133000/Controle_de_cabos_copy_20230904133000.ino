@@ -20,10 +20,11 @@ int pulso_rev_enc = 60;   //pulso por revolução encoder
 #define ENA   21          //Pino enable
 #define led   2           //Led azul da placa
 //-------------VARIAVEIS DE CONTROLE--------------------
-int microstepDelay=600;
 int modo = 1;             //Modo de operação do módulo
-float tempo_percurso=0.1;
+int microstepDelay=600;
+float tempo_percurso=0.5;
 float pwmFreq = 400;     // Frequência do PWM em Hz
+float fator_freq=6.6;
 const int pwmChannel = 0;     // Canal PWM (0-15)
 const int pwmResolution = 8;  // Resolução do PWM (bits, 1-16) 
 //---------------------ESPNOW----------------------------
@@ -127,8 +128,10 @@ void setup_peer(){
 
 //-------------MODO REMOTO--------------
 void remoto(){
-  
-  pwmFreq=abs(myData.x-rotValue)/tempo_percurso;
+
+  int64_t time_fim = esp_timer_get_time()+tempo_percurso*1000000;
+
+  pwmFreq=fator_freq*abs(myData.x-rotValue)/tempo_percurso;
   ledcDetachPin(STEP);
   ledcWriteTone(pwmChannel, pwmFreq);
   ledcAttachPin(STEP, pwmChannel);
@@ -141,13 +144,90 @@ void remoto(){
     else if (rotValue > myData.x){
         digitalWrite(DIR,LOW);
     }
+    delay(2);
+
+    if(time_fim>esp_timer_get_time()){
+      pwmFreq=fator_freq*abs(myData.x-rotValue)/((time_fim-esp_timer_get_time())/1000000);
+      if(pwmFreq>660){
+        pwmFreq=660;
+      }
+    }
+
+    ledcDetachPin(STEP);
+    ledcWriteTone(pwmChannel, pwmFreq);
+    ledcAttachPin(STEP, pwmChannel);
   }
-  
-  ledcWrite(pwmChannel, 0);
+  ledcDetachPin(STEP);
+}
+//----------------------------------------
+void corrige(){
+
+  pwmFreq=350;
+  ledcDetachPin(STEP);
+  ledcWriteTone(pwmChannel, pwmFreq);
+  ledcAttachPin(STEP, pwmChannel);
+
+  while(rotValue != myData.x){
+    ledcWrite(pwmChannel, 128);
+    if (rotValue < myData.x ){
+      digitalWrite(DIR,HIGH);
+    }
+    else if (rotValue > myData.x){
+        digitalWrite(DIR,LOW);
+    }
+    delay(2);
+  }
+  ledcDetachPin(STEP);
 }
 
 //----------------------------------------
+void pulso(){
+  digitalWrite(STEP, LOW);
+  delayMicroseconds(microstepDelay);
+  digitalWrite(STEP, HIGH);
+  delayMicroseconds(microstepDelay);
 
+}
+
+//-------------SELEÇÃO DO MODO DE OPERAÇÃO-------------------
+
+void opera(){
+  delay(500);
+  if(digitalRead(bot_g) == LOW && digitalRead(bot_r) == HIGH){
+    switch(modo){
+      case 0:
+        myData.x=rotValue;
+        modo = 1;
+        digitalWrite(led,LOW);
+        break;
+      case 1:
+        myData.x=rotValue;
+        modo = 0;
+        digitalWrite(led,HIGH);
+        break;
+    }
+  }
+}
+//-------------MODO MANUAL--------------
+
+void manual(){
+  if (digitalRead(bot_g) == HIGH && digitalRead(bot_r) == HIGH){
+    digitalWrite(DIR,HIGH); 
+    pulso_manual();
+   }
+  else if (digitalRead(bot_g) == LOW && digitalRead(bot_r) == LOW){
+    digitalWrite(DIR,LOW); 
+    pulso_manual();
+  }
+}
+//-------------------ROTAÇÃO DO MOTOR MANUAL-----------------------
+
+int pulso_manual(){
+  while((digitalRead(bot_g) == HIGH && digitalRead(bot_r) == HIGH) || (digitalRead(bot_g) == LOW && digitalRead(bot_r) == LOW)){
+    pulso();
+  } 
+}
+//----------------------------------------
 void setup() {
   Serial.begin(115200);
   ativar_ESPNOW();                       //Ativa o ESPNOW
@@ -175,4 +255,15 @@ void setup() {
 
 
 void loop() {
+  if(digitalRead(bot_g) == LOW && digitalRead(bot_r) == HIGH){
+    opera();
+  }
+  switch (modo){
+    case 0:
+      manual();
+      break;
+    case 1:
+      corrige();
+      break;
+  }
 }
