@@ -2,8 +2,6 @@
 #include <esp_now.h>
 #include <WiFi.h>
 //----------------PARAMETROS COMUNICAÇÃO------------------
-bool pronto[4] = {true, true, true, true};  //Confirmação de funcionamento dos módulos
-//----------------------ESPNOW----------------------------
 uint8_t moduloAddress0[] = {0x08, 0xB6, 0x1F, 0x2A, 0xF5, 0xC0};  //Endereço dos módulos
 uint8_t moduloAddress1[] = {0xD4, 0xD4, 0xDA, 0x5D, 0x50, 0x8C}; 
 uint8_t moduloAddress2[] = {0xD4, 0xD4, 0xDA, 0x5C, 0xFF, 0x84};
@@ -44,8 +42,6 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status){
 
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&myData, incomingData, sizeof(myData));
-  pronto[myData.id] = myData.fim;
-  printar();
 }
 
 //------------------REALIZA PAREAMENTO--------------------
@@ -92,39 +88,46 @@ void ativar_ESPNOW() {
   esp_now_register_recv_cb(OnDataRecv);
 }
 
-//--------------COMUNICAÇÃO PYTHON------------------
-
-void printar(){
-  Serial.println("Dados:");
-  Serial.print(pronto[0]);
-  Serial.print(";");
-  Serial.print(pronto[1]);
-  Serial.print(";");
-  pronto[2]=true;
-  Serial.print(pronto[2]);
-  Serial.print(";");
-  pronto[3]=true;
-  Serial.println(pronto[3]);
-}
-
 //-----------------ENVAR DADOS---------------------
 
 int env(){
-  if (pronto[0] && pronto[1]){
     esp_err_t result = esp_now_send(0, (uint8_t *) &mot, sizeof(Edados));
-  }
 }
 //--------------------------------------------------
 void setup() {
   Serial.begin(115200);
   ativar_ESPNOW();  //Ativa o ESPNOW
   mot.x = 0;        //Posição inicial dos módulos
+  esp_timer_init();                              //ativa a contagem de tempo da ESP
 }
+
+int sentido=-1;
+int64_t  current_time=0;
+int atualiza=0;
 
 void loop() {
   if(Serial.available()){
     mot.x = Serial.parseInt();
     Serial.readStringUntil('\n');
     env();
+  }
+
+  if(atualiza==0){
+    mot.x= mot.x+sentido*201;
+    Serial.println(mot.x);
+    atualiza=1;
+  }
+
+  
+  if( esp_timer_get_time()-current_time>1*1000000){
+    env();
+    current_time=esp_timer_get_time();
+    if(mot.x<-200){
+      sentido=1;
+    }
+    else if(mot.x>-500){
+      sentido=-1;
+    }
+    atualiza=0;
   }
 }
