@@ -165,7 +165,16 @@ void manual(){
   flag1=false;
   flag2=true;
 }
-//------------CORREÇÃO DA BALANÇA-------------------
+
+//---------------TASK DA PESAGEM--------------------
+
+void calc_peso(void *parameter) {
+  while(true){
+    peso = pesagem.get_units(3);
+  }
+}
+
+//-------------CORREÇÃO DA BALANÇA-------------------
 
 bool balanca(){
   peso = 5;        // Lê o peso da célula de carga em unidades definidas
@@ -235,6 +244,7 @@ void setup() {
   pesagem.begin(DOUT_PIN, SCK_PIN);              //inicializa a balança
   pesagem.set_scale(120653.731);                 //Calibragem da balança
   pesagem.tare();                                //Zera a balança no tare da calibragem
+  xTaskCreatePinnedToCore(calc_peso, "Calculo do peso", 10000, NULL, 1, NULL, 0); // Cria a tarefa na core 0
 
   digitalWrite(rele, HIGH);                      //aciona o rele liberando o giro do motor
 
