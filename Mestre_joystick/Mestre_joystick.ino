@@ -2,23 +2,29 @@
 #include <esp_now.h>
 #include <WiFi.h>
 //-----------------------JOYSTICK-------------------------
-int pino_x = 33;
-int pino_y = 32;
+#define pino_x 33
+#define pino_y 32
+#define altura  600
+#define largura 400
 bool pronto[4] = {true, true, true, true};  //Confirmação de funcionamento dos módulos
 int comprimento[4] = {0, 0, 0, 0};
 float coord_x = 0;
 float coord_y = 0;
-int altura = 600;
-int largura = 400;
+const int coord_modulos[4][2] = {
+  {0, 0},
+  {largura, 0},
+  {0, altura},
+  {largura, altura}
+};
 //----------------------ESPNOW----------------------------
- uint8_t moduloAddresses[4][6] = {            //Endereço dos módulos
-        //{0x08, 0xB6, 0x1F, 0x2A, 0xF5, 0xC0},
-        //{0x24, 0xD7, 0xEB, 0x10, 0x52, 0x78},
-        {0xC4, 0xDE, 0xE2, 0x19, 0x67, 0xB4},
-        {0xD4, 0xD4, 0xDA, 0x59, 0xD8, 0xC8},
-        {0xCC, 0xDB, 0xA7, 0x68, 0x55, 0xB0},
-        {0xD4, 0xD4, 0xDA, 0x5D, 0x50, 0x8C}
-    };
+uint8_t moduloAddresses[4][6] = {            //Endereço dos módulos
+  //{0x08, 0xB6, 0x1F, 0x2A, 0xF5, 0xC0},
+  //{0x24, 0xD7, 0xEB, 0x10, 0x52, 0x78},
+  {0xC4, 0xDE, 0xE2, 0x19, 0x67, 0xB4},
+  {0xD4, 0xD4, 0xDA, 0x59, 0xD8, 0xC8},
+  {0xCC, 0xDB, 0xA7, 0x68, 0x55, 0xB0},
+  {0xD4, 0xD4, 0xDA, 0x5D, 0x50, 0x8C}
+};
 
 esp_now_peer_info_t peerInfo;                                     //Variavel de pareamento
 
@@ -59,23 +65,10 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status){
 //
 void calculo_comprimento(){
   for (int i = 0; i < 4; i++){
-    switch(i){
-      case 0:
-        mot.rotValue = round(sqrt(pow(coord_x,2)+pow(coord_y,2)));
-        break;
-      case 1:
-        mot.rotValue = round(sqrt(pow(largura - coord_x,2)+pow(coord_y,2)));
-        break;
-      case 2:
-        mot.rotValue = round(sqrt(pow(coord_x,2)+pow(altura - coord_y,2)));
-        break;
-      case 3:
-        mot.rotValue = round(sqrt(pow(largura - coord_x,2)+pow(altura - coord_y,2)));
-        break;
-    }
+    //mot.rotValue = round(sqrt(pow(coord_modulos[i][1] - coord_x,2)+pow(coord_modulos[i][2] - coord_y,2)));
     mot.rotValue = round(sqrt(pow(coord_x,2)+pow(coord_y,2)));
     //comprimento[i] = mot.rotValue;
-    Serial.println(mot.rotValue);
+    //Serial.println(mot.rotValue);
     esp_err_t result = esp_now_send(moduloAddresses[i], (uint8_t *) &mot, sizeof(Edados));
   }
 }
@@ -89,7 +82,7 @@ void IRAM_ATTR env_pos(void* arg) {
 
 
   if(abs(val_x) > 20 || abs(val_y) > 200){
-    int modulo = sqrt(pow(val_x,2)+pow(val_y,2));
+    //int modulo = sqrt(pow(val_x,2)+pow(val_y,2));
 
     coord_x += val_x*10/abs(val_x);
     //coord_y += val_y*10/abs(val_y);
