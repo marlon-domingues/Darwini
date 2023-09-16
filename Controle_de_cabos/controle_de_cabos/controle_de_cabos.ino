@@ -14,10 +14,22 @@ int pulso_rev_enc = 60;       //pulso por revolução encoder
 bool flag2=false;             // flag de tensão mecânica e modo manuak 
 int modo = 1;                 //Modo de operação do módulo
 int contador_media_balanca=0; //utilizado para preencher o valor de tensões mecânica no inicio do programa 
+int contador_PID=0; //utilizado para preencher o valor de tensões mecânica no inicio do programa 
 int media_tam=4;              //tamanho da média móvel que é feito 
 long peso[4];                 //vetor dos ultimos quatro pesos medidos (O TAMNO DESSE VETOR DEVE SER DIMENSIONADO COM BASE NO MEDIA_TAM)
 long peso_medio=0;            //valor da média dos valores do vetor peso 
 float pwmFreq = 400;          // Frequência do PWM que é iniciado 
+float pwmFreq_lim = 1800;     //frequencia máxima do pwm 
+float coeficiente_freq=5;     //relaciona o erro com a velocidade de roração
+float pwmFreq_remoto = 400;
+float kp=0.1;
+float kd=0.1;
+float ki=0.1;
+long erro[3];
+float pass_time=0;
+float current_time=0;
+float T=0;
+
 #define  pwmChannel 0         // Canal PWM (0-15)
 #define  pwmFreq_manual 600   //frequencia do pulso no modo manual 
 #define  pwmFreq_balanca 100  //frequencia de correção da balança
@@ -93,6 +105,11 @@ void IRAM_ATTR isrAB() {             //ao haver um mudança do estado do encoder
 
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&mot, incomingData, sizeof(mot));
+  pwmFreq_remoto=abs(mot.x-rotValue)*coeficiente_freq;
+  if(pwmFreq>pwmFreq_lim){
+    pwmFreq=pwmFreq_lim;
+  }
+  
 }
 
 //-------------ATIVA ESPNOW-------------------
@@ -161,7 +178,33 @@ void manual(){
   delay(10);
 }
 
- //-------------CORRIGE A POSIÇÃO--------------
+//-------------CORRIGE A POSIÇÃO--------------
+
+void Freq_PID(){
+  current_time=esp_timer_get_time()/1000000;
+  T=current_time-pass_time;
+  if(contador_PID<3){
+    erro[contador_PID]=mot.x-rotValue;
+    contador_PID++;
+    pwmFreq=200;
+  }
+   else{
+    erro[0]=erro[1];
+    erro[1]=erro[2];
+    erro[2]=mot.x-rotValue;
+    pwmFreq= pwmFreq + (kp+kd/T)*erro[2]+(-kp-2*kd/T+ki*T)*erro[1]+(kd/T)*erro[0];
+
+    if(pwmFreq>2000){
+      pwmFreq=2000;
+    }
+  }
+
+
+  
+  pass_time=esp_timer_get_time()/1000000;
+}
+
+//-------------CORRIGE A POSIÇÃO--------------
 
 void corrige(){
   if(contador_media_balanca<media_tam){                  //confere se o vetor dos pesos já vou preenchido para iniciar o processo de média
@@ -214,12 +257,13 @@ void corrige(){
       else if(rotValue>mot.x){
         digitalWrite(DIR,LOW);
       }
-      if(pwmFreq!=pwmFreq_manual){
-        pwmFreq=pwmFreq_manual;
-        ledcDetachPin(STEP);                         //
-        ledcWriteTone(pwmChannel, pwmFreq);   //Configura o pwm para  a nova frequencia
-        ledcAttachPin(STEP, pwmChannel);             //
-      }
+
+    if(pwmFreq!=pwmFreq_remoto){
+      pwmFreq=pwmFreq_remoto;
+      ledcDetachPin(STEP);                         //
+      ledcWriteTone(pwmChannel, pwmFreq);   //Configura o pwm para  a nova frequencia
+      ledcAttachPin(STEP, pwmChannel);             //
+    }
 
       ledcWrite(pwmChannel, 128);
       delay(10);
