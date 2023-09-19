@@ -6,23 +6,34 @@
 #include <Arduino.h>
 #include <driver/ledc.h>     //Biblioteca para controlar PWM em ESP32
 #include "HX711.h"           //biblioteca cpelula de carga
+#include <stdio.h>
 //-----------------PARAMETROS ENCODER--------------------
 long int rotValue=0;          //contagem de pulsos do encoder 
 uint8_t state=0;              //variavel do estado do encoder
 int pulso_rev_enc = 60;       //pulso por revolução encoder 
 //-------------VARIAVEIS DE CONTROLE--------------------
-bool flag1=false;                   //variavel para função manual 
-bool flag2=false;
-bool flag3=false;
+bool flag2=false;             // flag de tensão mecânica e modo manuak 
 int modo = 1;                 //Modo de operação do módulo
-float peso=0;
-float pwmFreq = 400;        // Frequência do PWM em Hz
-float fator_freq=6.6;       //relação entre a frequência do motor e do encoder
-#define  pwmChannel 1       // Canal PWM (0-15)
-#define  pwmFreq_manual 600 //frequencia do pulso no modo manual 
-#define  pwmResolution 8    // Resolução do PWM (bits, 1-16) 
-#define balanca_min 0.2
-#define balanca_max 10
+int contador_media_balanca=0; //utilizado para preencher o valor de tensões mecânica no inicio do programa 
+int contador_PID=0; //utilizado para preencher o valor de tensões mecânica no inicio do programa 
+int media_tam=4;              //tamanho da média móvel que é feito 
+long peso[4];                 //vetor dos ultimos quatro pesos medidos (O TAMNO DESSE VETOR DEVE SER DIMENSIONADO COM BASE NO MEDIA_TAM)
+long peso_medio=0;            //valor da média dos valores do vetor peso 
+float pwmFreq = 400;          // Frequência do PWM que é iniciado 
+float pwmFreq_lim = 1800;     //frequencia máxima do pwm 
+float coeficiente_freq=5;     //relaciona o erro com a velocidade de roração
+float pwmFreq_remoto = 10;
+long erro[3];
+float pass_time=0;
+float current_time=0;
+float T=0;
+
+#define  pwmChannel 0         // Canal PWM (0-15)
+#define  pwmFreq_manual 600   //frequencia do pulso no modo manual 
+#define  pwmFreq_balanca 100  //frequencia de correção da balança
+#define  pwmResolution 8      // Resolução do PWM (bits, 1-16) 
+#define balanca_min -450000   //valor mínimo da balança antes de atuar puxando a corda 
+#define balanca_max 300000    //valor máximo da balança antes de atuar soltando a corsa
 //------------------SINAIS PLACA-------------------------
 #define ROTARY_PINA 35        //Porta de entrada do sinal do encoder
 #define ROTARY_PINB 32        //Porta de entrada do sinal do encoder
@@ -46,12 +57,57 @@ typedef struct Rdados{        //Estrutura dos dados recebidos pelos escravos
 };
 
 Rdados mot;                //Variavel do tipo de recebimento dos escravos
-//-------------------------------------------------------
+//----------------CONTROLADOR PID-------------------------
+typedef struct {
+    double kp;  // Ganho Proporcional
+    double ki;  // Ganho Integral
+    double kd;  // Ganho Derivativo
+    double setpoint; // Valor de referência desejado
+    double integral;  // Variável para o termo integral
+    double prev_error; // Variável para armazenar o erro anterior
+} PIDController;
 
 //########################################################
 //---------------------FUNÇÕES----------------------------
 //########################################################
 
+//-------------INICIALIZA O CONTROLADOR ----------------
+void PID_Init(PIDController *pid, double kp, double ki, double kd) {
+    pid->kp = kp;
+    pid->ki = ki;
+    pid->kd = kd;
+    pid->integral = 0;
+    pid->prev_error = 0;
+}
+
+//-------------CALCULA A SAÍDA DO CONTROLADOR ----------------
+
+void PID_Update(PIDController *pid) {
+    double error = abs(mot.x - rotValue);
+    double p_term = pid->kp * error;
+    
+    pid->integral += error;
+    double i_term = pid->ki * pid->integral;
+    
+    double d_term = pid->kd * (error - pid->prev_error);
+    
+    double output = p_term + i_term + d_term;
+    
+    pid->prev_error = error;
+    
+    if(output>0){
+      pwmFreq=output;
+      if(pwmFreq>pwmFreq_lim){
+        pwmFreq=pwmFreq_lim;
+      }
+    }
+    else{
+      pwmFreq-=output;
+      if(pwmFreq<0){
+        pwmFreq=0;
+      }
+    }
+}
 //-------------INTERRUPÇÃO DO ENCODER---------------------
 portMUX_TYPE gpioMux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -80,26 +136,23 @@ void IRAM_ATTR isrAB() {             //ao haver um mudança do estado do encoder
    state = (s >> 2);
    portEXIT_CRITICAL_ISR(&gpioMux);  //habilita a interrupção novamente
 
-   if(!flag2){
-    if(flag3){
-      if(rotValue<=mot.x){
-        ledcWrite(pwmChannel, 0);
-      }
+  if(!flag2){                        //
+    if(rotValue==mot.x){             //Para de girar o motor assim que  atinge a meta, isso evita que a ferramenta fique oscilando 
+      ledcWrite(pwmChannel, 0);      //
+      delay(10);                     //
     }
-    else{
-      if(rotValue>=mot.x){
-        ledcWrite(pwmChannel, 0);
-      }
-    }
-   }
+  }
 }
 
 //-------------RECEBIMENTO DOS DADOS POR ESPNOW-------------------
 
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&mot, incomingData, sizeof(mot));
-  Serial.println("Recebi: ");
-  Serial.println(mot.x);
+  pwmFreq_remoto=abs(mot.x-rotValue)*coeficiente_freq;
+  if(pwmFreq>pwmFreq_lim){
+    pwmFreq=pwmFreq_lim;
+  }
+  
 }
 
 //-------------ATIVA ESPNOW-------------------
@@ -144,12 +197,8 @@ void opera(){
 }
 //-------------MODO MANUAL--------------
 
-void manual(){
-
-  flag1=false;
-  
+void manual(){  
   while(digitalRead(bot_g) == HIGH && digitalRead(bot_r) == HIGH || digitalRead(bot_g) == LOW && digitalRead(bot_r) == LOW ){
-    if(flag1==false){
       if (digitalRead(bot_g) == HIGH && digitalRead(bot_r) == HIGH){    //com o botão vermelho apertado gira para um lado
       digitalWrite(DIR,HIGH); 
       }
@@ -157,77 +206,97 @@ void manual(){
       digitalWrite(DIR,LOW); 
       }
       
-      ledcDetachPin(STEP);                         //
-      ledcWriteTone(pwmChannel, pwmFreq_manual);   //Configura o pwm para  a nova frequencia
-      ledcAttachPin(STEP, pwmChannel);             //
+      if(pwmFreq!=pwmFreq_manual){
+        pwmFreq=pwmFreq_manual;
+        ledcDetachPin(STEP);                         //
+        ledcWriteTone(pwmChannel, pwmFreq);   //Configura o pwm para  a nova frequencia
+        ledcAttachPin(STEP, pwmChannel);             //
+      }
+
       ledcWrite(pwmChannel, 128);
-      flag1=true;
-    }
+      delay(10);
   }
-  ledcWrite(pwmChannel, 0);
-  flag1=false;
-  flag2=true;
+  //ledcWrite(pwmChannel, 0);
+  mot.x=rotValue;            //iguala a posição atual com a desejada para que a ferramenta não se movimente após sair do modo manual 
+  delay(10);
 }
 
-//---------------TASK DA PESAGEM--------------------
-
-void calc_peso(void *parameter) {
-  while(true){
-    pesagem.power_up();
-    peso = pesagem.get_units();
-    Serial.print("Peso1: ");
-    Serial.println(peso);
-    //peso = random(1, 9);
-    vTaskDelay(3000 / portTICK_PERIOD_MS);
-    pesagem.power_down();
-  }
-}
-
-//-------------CORREÇÃO DA BALANÇA-------------------
-
-bool balanca(){
-  if (peso<=balanca_min || peso>=balanca_max){
-    if(peso<=balanca_min){
-      digitalWrite(DIR,LOW);
-    }
-    else if(peso>=balanca_max){
-      digitalWrite(DIR,HIGH);
-    }
-  
-    ledcDetachPin(STEP);                         //
-    ledcWriteTone(pwmChannel, pwmFreq_manual);   //Configura o pwm para  a nova frequencia
-    ledcAttachPin(STEP, pwmChannel);             //
-    ledcWrite(pwmChannel, 128);
-    
-    flag2=true;
-
-    return false;
-  }
-  else{
-    return true;
-  }
-}
-
- //-------------CORRIGE A POSIÇÃO--------------
+//-------------CORRIGE A POSIÇÃO--------------
 
 void corrige(){
-  if (balanca()){
-    if(flag2){
-      mot.x=rotValue;
-      ledcWrite(pwmChannel, 0);
-      flag2 = false;
+  if(contador_media_balanca<media_tam){                  //confere se o vetor dos pesos já vou preenchido para iniciar o processo de média
+    peso[contador_media_balanca] = pesagem.get_units();  
+    contador_media_balanca++;
+  }
+  else{
+    for(int i=0; i<media_tam-1; i++){ 
+      peso[i]=peso[i+1];                                 //desloca os valores do vetor para que seja colocado a nova medição
     }
-    if(rotValue!=mot.x){
-      Serial.println("To mandando andar");
+    peso[media_tam-1]=pesagem.get_units();               //ultima medição do vetor é a atual 
+    
+    peso_medio=0;                                        //zera o valor do peso médio para não interferir no valor da média seguint e
+
+    for(int i=0; i<media_tam; i++){
+      peso_medio=peso_medio+peso[i]/media_tam;           //faz a média dos valores medidos 
+    }
+
+    //Serial.println(peso_medio); 
+  }
+  if (peso_medio<balanca_min || peso_medio>balanca_max){  //confere se o valor medido de tensão mecânica está dentro do esperado para a operação 
+    if(peso_medio<balanca_min){
+      digitalWrite(DIR,LOW);
+    }
+    else{
+      digitalWrite(DIR,HIGH);
+    }
+
+    if(pwmFreq!=pwmFreq_balanca){
+      pwmFreq=pwmFreq_balanca;
+      ledcDetachPin(STEP);                         //
+      ledcWriteTone(pwmChannel, pwmFreq);   //Configura o pwm para  a nova frequencia
+      ledcAttachPin(STEP, pwmChannel);             //
+    }
+
+    ledcWrite(pwmChannel, 128);
+    flag2=true;
+    delay(10);
+  }
+  else{
+    if(flag2){
+      ledcWrite(pwmChannel, 0);   //a flag 2 indica que foi preciso corrigir a tensão mecânica e portanto o pwm está ligado e será desligado 
+      mot.x=rotValue;   
+      delay(10);
+      flag2=false;
+    }
+    if(rotValue!=mot.x){                       //confere se precisa se movimentar 
       if(rotValue<mot.x){
         digitalWrite(DIR,HIGH);
-        flag3=true;
       }
       else if(rotValue>mot.x){
         digitalWrite(DIR,LOW);
-        flag3=false;
       }
+
+    Serial.println(rotValue);
+    PIDController pid;
+    PID_Init(&pid, 7,5,0.5);
+    PID_Update(&pid);
+    ledcDetachPin(STEP);                         //
+    ledcWriteTone(pwmChannel, pwmFreq);   //Configura o pwm para  a nova frequencia
+    ledcAttachPin(STEP, pwmChannel);             //
+
       ledcWrite(pwmChannel, 128);
+      delay(10);
+    }
+    else{
+      ledcWrite(pwmChannel, 0);
+      delay(10);
+      if(pwmFreq!=pwmFreq_remoto){
+        pwmFreq=pwmFreq_remoto;
+        ledcDetachPin(STEP);                         //
+        ledcWriteTone(pwmChannel, pwmFreq);   //Configura o pwm para  a nova frequencia
+        ledcAttachPin(STEP, pwmChannel);             //
+        delay(10);
+      }
     }
   }
 }
@@ -251,22 +320,21 @@ void setup() {
   esp_timer_init();                              //ativa a contagem de tempo da ESP
 
   pesagem.begin(DOUT_PIN, SCK_PIN);              //inicializa a balança
-  pesagem.set_scale(120653.731);                 //Calibragem da balança
-  pesagem.tare();                                //Zera a balança no tare da calibragem
-  xTaskCreatePinnedToCore(calc_peso, "Calculo do peso", 10000, NULL, 1, NULL, 0); // Cria a tarefa na core 0
 
   digitalWrite(rele, HIGH);                      //aciona o rele liberando o giro do motor
-
-  delay(1000);                                   //tempo para acionamento do rele
-  
   ledcSetup(pwmChannel, pwmFreq, pwmResolution);
   ledcAttachPin(STEP, pwmChannel);
   ledcWrite(pwmChannel, 0);
+
+  delay(1000);                                   //tempo para acionamento do rele
+  
+
 }
 
 
 //---------------LOOP--------------------------
 void loop() {
+  
   if(digitalRead(bot_g) == LOW && digitalRead(bot_r) == HIGH){
     opera();
   }
