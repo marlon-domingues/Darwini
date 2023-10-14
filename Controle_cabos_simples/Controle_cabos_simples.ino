@@ -160,32 +160,6 @@ void manual(){
 
 //-------------CORRIGE A POSIÇÃO--------------
 
-void Freq_PID(){
-  current_time=esp_timer_get_time()/1000000;
-  T=current_time-pass_time;
-  if(contador_PID<3){
-    erro[contador_PID]=mot.x-rotValue;
-    contador_PID++;
-    pwmFreq=200;
-  }
-   else{
-    erro[0]=erro[1];
-    erro[1]=erro[2];
-    erro[2]=mot.x-rotValue;
-    pwmFreq= pwmFreq + (kp+kd/T)*erro[2]+(-kp-2*kd/T+ki*T)*erro[1]+(kd/T)*erro[0];
-
-    if(pwmFreq>2000){
-      pwmFreq=2000;
-    }
-  }
-
-
-  
-  pass_time=esp_timer_get_time()/1000000;
-}
-
-//-------------CORRIGE A POSIÇÃO--------------
-
 void corrige(){
   if(rotValue!=mot.x){                       //confere se precisa se movimentar 
     if(rotValue<mot.x){
