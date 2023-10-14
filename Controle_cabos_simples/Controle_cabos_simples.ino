@@ -5,37 +5,23 @@
 #include <math.h>
 #include <Arduino.h>
 #include <driver/ledc.h>     //Biblioteca para controlar PWM em ESP32
-#include "HX711.h"           //biblioteca cpelula de carga
+
 //-----------------PARAMETROS ENCODER--------------------
 long int rotValue=0;          //contagem de pulsos do encoder 
 uint8_t state=0;              //variavel do estado do encoder
-int pulso_rev_enc = 60;       //pulso por revolução encoder 
+
 //-------------VARIAVEIS DE CONTROLE--------------------
-bool flag2=false;             // flag de tensão mecânica e modo manuak 
 int modo = 1;                 //Modo de operação do módulo
-int contador_media_balanca=0; //utilizado para preencher o valor de tensões mecânica no inicio do programa 
-int contador_PID=0; //utilizado para preencher o valor de tensões mecânica no inicio do programa 
-int media_tam=4;              //tamanho da média móvel que é feito 
-long peso[4];                 //vetor dos ultimos quatro pesos medidos (O TAMNO DESSE VETOR DEVE SER DIMENSIONADO COM BASE NO MEDIA_TAM)
-long peso_medio=0;            //valor da média dos valores do vetor peso 
 float pwmFreq = 400;          // Frequência do PWM que é iniciado 
 float pwmFreq_lim = 1800;     //frequencia máxima do pwm 
 float coeficiente_freq=5;     //relaciona o erro com a velocidade de roração
 float pwmFreq_remoto = 400;
-float kp=0.1;
-float kd=0.1;
-float ki=0.1;
-long erro[3];
-float pass_time=0;
-float current_time=0;
-float T=0;
 
 #define  pwmChannel 0         // Canal PWM (0-15)
 #define  pwmFreq_manual 600   //frequencia do pulso no modo manual 
 #define  pwmFreq_balanca 100  //frequencia de correção da balança
 #define  pwmResolution 8      // Resolução do PWM (bits, 1-16) 
-#define balanca_min -450000   //valor mínimo da balança antes de atuar puxando a corda 
-#define balanca_max 300000    //valor máximo da balança antes de atuar soltando a corsa
+
 //------------------SINAIS PLACA-------------------------
 #define ROTARY_PINA 35        //Porta de entrada do sinal do encoder
 #define ROTARY_PINB 32        //Porta de entrada do sinal do encoder
@@ -93,12 +79,6 @@ void IRAM_ATTR isrAB() {             //ao haver um mudança do estado do encoder
    state = (s >> 2);
    portEXIT_CRITICAL_ISR(&gpioMux);  //habilita a interrupção novamente
 
-  if(!flag2){                        //
-    if(rotValue==mot.x){             //Para de girar o motor assim que  atinge a meta, isso evita que a ferramenta fique oscilando 
-      ledcWrite(pwmChannel, 0);      //
-      delay(10);                     //
-    }
-  }
 }
 
 //-------------RECEBIMENTO DOS DADOS POR ESPNOW-------------------
@@ -207,72 +187,27 @@ void Freq_PID(){
 //-------------CORRIGE A POSIÇÃO--------------
 
 void corrige(){
-  if(contador_media_balanca<media_tam){                  //confere se o vetor dos pesos já vou preenchido para iniciar o processo de média
-    peso[contador_media_balanca] = pesagem.get_units();  
-    contador_media_balanca++;
-  }
-  else{
-    for(int i=0; i<media_tam-1; i++){ 
-      peso[i]=peso[i+1];                                 //desloca os valores do vetor para que seja colocado a nova medição
-    }
-    peso[media_tam-1]=pesagem.get_units();               //ultima medição do vetor é a atual 
-    
-    peso_medio=0;                                        //zera o valor do peso médio para não interferir no valor da média seguint e
-
-    for(int i=0; i<media_tam; i++){
-      peso_medio=peso_medio+peso[i]/media_tam;           //faz a média dos valores medidos 
-    }
-
-    Serial.println(peso_medio); 
-  }
-  if (peso_medio<balanca_min || peso_medio>balanca_max){  //confere se o valor medido de tensão mecânica está dentro do esperado para a operação 
-    if(peso_medio<balanca_min){
-      digitalWrite(DIR,LOW);
-    }
-    else{
+  if(rotValue!=mot.x){                       //confere se precisa se movimentar 
+    if(rotValue<mot.x){
       digitalWrite(DIR,HIGH);
     }
-
-    if(pwmFreq!=pwmFreq_balanca){
-      pwmFreq=pwmFreq_balanca;
-      ledcDetachPin(STEP);                         //
-      ledcWriteTone(pwmChannel, pwmFreq);   //Configura o pwm para  a nova frequencia
-      ledcAttachPin(STEP, pwmChannel);             //
+    else if(rotValue>mot.x){
+      digitalWrite(DIR,LOW);
     }
 
+  if(pwmFreq!=pwmFreq_remoto){
+    pwmFreq=pwmFreq_remoto;
+    ledcDetachPin(STEP);                         //
+    ledcWriteTone(pwmChannel, pwmFreq);   //Configura o pwm para  a nova frequencia
+    ledcAttachPin(STEP, pwmChannel);             //
+  }
+
     ledcWrite(pwmChannel, 128);
-    flag2=true;
     delay(10);
   }
   else{
-    if(flag2){
-      ledcWrite(pwmChannel, 0);   //a flag 2 indica que foi preciso corrigir a tensão mecânica e portanto o pwm está ligado e será desligado 
-      delay(10);
-      flag2=false;
-    }
-    if(rotValue!=mot.x){                       //confere se precisa se movimentar 
-      if(rotValue<mot.x){
-        digitalWrite(DIR,HIGH);
-      }
-      else if(rotValue>mot.x){
-        digitalWrite(DIR,LOW);
-      }
-
-    if(pwmFreq!=pwmFreq_remoto){
-      pwmFreq=pwmFreq_remoto;
-      ledcDetachPin(STEP);                         //
-      ledcWriteTone(pwmChannel, pwmFreq);   //Configura o pwm para  a nova frequencia
-      ledcAttachPin(STEP, pwmChannel);             //
-    }
-
-      ledcWrite(pwmChannel, 128);
-      delay(10);
-    }
-    else{
-      ledcWrite(pwmChannel, 0);
-      delay(10);
-    }
-  }
+    ledcWrite(pwmChannel, 0);
+    delay(10);
 }
 
 //---------------SETUP--------------------------
@@ -292,8 +227,6 @@ void setup() {
   Serial.begin(115200);                          //ativa a comunicação serial
   ativar_ESPNOW();                               //Ativa o ESPNOW
   esp_timer_init();                              //ativa a contagem de tempo da ESP
-
-  pesagem.begin(DOUT_PIN, SCK_PIN);              //inicializa a balança
 
   digitalWrite(rele, HIGH);                      //aciona o rele liberando o giro do motor
 
